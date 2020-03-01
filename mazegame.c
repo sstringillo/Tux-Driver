@@ -388,6 +388,7 @@ static int total = 0;
  *   SIDE EFFECTS: none
  */
 static void *rtc_thread(void *arg) {
+    int time = 0;
     int ticks = 0;
     int level;
     int ret;
@@ -436,7 +437,7 @@ static void *rtc_thread(void *arg) {
             ticks = data >> 8;    
 
             total += ticks;
-
+            time += ticks; //set time to ticks to use as our status clock
             // If the system is completely overwhelmed we better slow down:
             if (ticks > 8) ticks = 8;
 
@@ -446,11 +447,17 @@ static void *rtc_thread(void *arg) {
             else {
                 goodcount++;
             }
-
+            
             while (ticks--) {
 
                 // Lock the mutex
                 pthread_mutex_lock(&mtx);
+
+                //get the values we want for our status bar
+                int fruit_val = return_nfruit();
+                int levels = level;
+                int tickval = total;
+                status_bar_on_screen(level,fruit_val,time);
 
                 // Check to see if a key has been pressed
                 if (next_dir != dir) {
@@ -475,6 +482,7 @@ static void *rtc_thread(void *arg) {
                     if (unveil_around_player(play_x, play_y)) {
                         pthread_mutex_unlock(&mtx);
                         goto_next_level = 1;
+                        time=0; //reset time if we completed the level
                         break;
                     }
                 

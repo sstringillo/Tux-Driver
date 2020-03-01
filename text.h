@@ -41,6 +41,9 @@
 #define FONT_WIDTH   8
 #define FONT_HEIGHT  16
 
+/* Helper to put our status message into our status buffer */
+extern void text_helper(unsigned char* statusbuf, char* statusmessage);
+
 /* Standard VGA text font. */
 extern unsigned char font_data[256][16];
 

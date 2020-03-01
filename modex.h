@@ -123,6 +123,9 @@ extern void show_screen();
 /* clear the video memory in mode X */
 extern void clear_screens();
 
+/* show the status bar view window on the bottom of the monitor */
+extern void status_bar_on_screen(int level, int fruit, int ticks);
+
 /*
  * draw a 12x12 block with upper left corner at logical position
  * (pos_x,pos_y); any part of the block outside of the logical view window

@@ -39,6 +39,37 @@
 #include "text.h"
 
 /* 
+ * text_helper
+ *   DESCRIPTION: 
+ *   INPUTS: statusbuf, our buffer which currently contains our background color
+             statusmessage, string that contains our status string
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: swaps background color with our status text color in correct spots
+ */
+void text_helper(unsigned char* statusbuf, char* statusmessage){
+    int len = strlen(statusmessage);
+    int i,j,k; //buffer loop values
+    int curr,col,row,val,newloc,shftvalue; //buffer movement values
+    for(i=0;i<len;i++){
+      for(j=0;j<16;j++){
+          for(k=0;k<8;k++){
+              curr = (int)statusmessage[i]; //gets char at location i
+              row = j+1;                    // starts us at row 1 since we need 1 px on top and bottom
+              col = (i*8+k+40);             // loops through each col of char
+              val = font_data[curr][j];     //gets val from  font_data for our correct char
+              shftvalue = val>>(8-k);       //puts bit we care about far right
+              shftvalue = shftvalue & 0x01; //AND with 01 to figure out value of last bit 
+              newloc = (row*320)+col;       //gets location of pixel to draw to
+              if(shftvalue==1){             //checks if value 1 which means we need to color it
+                  statusbuf[newloc]=0x01;
+              }
+            }
+      }  
+    }
+}
+
+/* 
  * These font data were read out of video memory during text mode and
  * saved here.  They could be read in the same manner at the start of a
  * game, but keeping a copy allows us to run the game to fix text mode

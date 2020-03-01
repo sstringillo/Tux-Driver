@@ -51,7 +51,7 @@
 #define TEST_MAZE_GEN 0
 
 /* Set to 1 to remove all walls as a debugging aid. (Nate Taylor, S07). */
-#define GOD_MODE 0
+#define GOD_MODE 1
 
 /* local functions--see function headers for details */
 static int mark_maze_area(int x, int y);
@@ -718,6 +718,20 @@ int add_a_fruit() {
     draw_full_block (exit_x * BLOCK_X_DIM, exit_y * BLOCK_Y_DIM, 
              find_block(exit_x, exit_y));
 
+    /* Return the current number of fruits in the maze. */
+    return n_fruits;
+}
+
+/* 
+ * return_nfruit
+ *   DESCRIPTION: Returns nfruits for use in our status bar
+ *   INPUTS: none
+ *   OUTPUTS: none
+ *   RETURN VALUE: the number of fruits in the maze at the time 
+                   when it is called
+ *   SIDE EFFECTS: none
+ */
+int return_nfruit() {
     /* Return the current number of fruits in the maze. */
     return n_fruits;
 }

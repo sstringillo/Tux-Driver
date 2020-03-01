@@ -85,9 +85,9 @@ static unsigned short mode_X_seq[NUM_SEQUENCER_REGS] = {
 };
 static unsigned short mode_X_CRTC[NUM_CRTC_REGS] = {
     0x5F00, 0x4F01, 0x5002, 0x8203, 0x5404, 0x8005, 0xBF06, 0x1F07,
-    0x0008, 0x4109, 0x000A, 0x000B, 0x000C, 0x000D, 0x000E, 0x000F,
+    0x0008, 0x0109, 0x000A, 0x000B, 0x000C, 0x000D, 0x000E, 0x000F,
     0x9C10, 0x8E11, 0x8F12, 0x2813, 0x0014, 0x9615, 0xB916, 0xE317,
-    0xFF18
+    0x6C18
 };
 static unsigned char mode_X_attr[NUM_ATTR_REGS * 2] = {
     0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03,
@@ -136,6 +136,7 @@ static void fill_palette();
 static void write_font_data();
 static void set_text_mode_3(int clear_scr);
 static void copy_image(unsigned char* img, unsigned short scr_addr);
+static void copy_status_bar(unsigned char* img);
 
 /*
  * Images are built in this buffer, then copied to the video memory.
@@ -299,8 +300,12 @@ int set_mode_X(void (*horiz_fill_fn)(int, int, unsigned char[SCROLL_X_DIM]),
         build[BUILD_BUF_SIZE + MEM_FENCE_WIDTH + i] = MEM_FENCE_MAGIC;
     }
 
-    /* One display page goes at the start of video memory. */
-    target_img = 0x0000;
+    /* One display page goes at the start of video memory. 
+        Starts at 1440 now since our status bar is the beginning 
+        and our status length is 1440
+    */
+    
+    target_img = 0x1440;
 
     /* Map video memory and obtain permission for VGA port access. */
     if (open_memory_and_ports() == -1)
@@ -518,6 +523,56 @@ void show_screen() {
 }
 
 /*
+ * status_bar_on_screen
+ *   DESCRIPTION: Show the logical status bar window on the video display.
+ *   INPUTS: level, value of the current level we are on
+             fruit, value of amount of fruits on current level
+             tick, amount of time in ticks that have passed in the current level
+ *   OUTPUTS: none 
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: copies from the build buffer to video memory;
+ *                 shifts the VGA display source to point to the new image 
+ */
+void status_bar_on_screen(int level,int fruit, int tick){
+    unsigned char statusbuf[5760];    /* status buffer, size 5760 = 320 * 18 */
+    unsigned char statusadjustedbuf[5760];
+
+    char* statusmessage[40]={0}; //empty status text
+
+    /* converts our ticks to minutes and seconds */
+    int seconds = tick/32;
+    int modsec = (tick/32)%60;
+    int mins = seconds/60;
+
+    //converts our status message into a string we can work with
+    sprintf(statusmessage,"Level %d     Fruit %d    %d:%.2d", level,fruit,mins,modsec);
+
+    /* puts background color into buffer */
+    int i;
+    for(i=0;i<5760;i++){
+        statusbuf[i]=0x03;
+    }
+    
+    /* puts status message into status buffer */
+    text_helper(statusbuf, statusmessage);
+
+    /* logical to build buffer conversion */
+    int j;
+    for(i=0;i<4;i++){
+        for(j=0;j<1440;j++){
+            statusadjustedbuf[j+i*1440]=statusbuf[4*j+i];
+        }
+    }
+
+    /* Draw to each plane in the video memory. */
+    for (i = 0; i < 4; i++) {
+        SET_WRITE_MASK(1 << (i + 8));
+        copy_status_bar(statusadjustedbuf+i*1440);
+    }
+
+}
+
+/*
  * clear_screens
  *   DESCRIPTION: Fills the video memory with zeroes.
  *   INPUTS: none
@@ -623,6 +678,32 @@ void draw_full_block(int pos_x, int pos_y, unsigned char* blk) {
  */
 int draw_vert_line(int x) {
     /* to be written... */
+    unsigned char buf[SCROLL_Y_DIM];    /* buffer for graphical image of line */
+    unsigned char* addr;                /* address of first pixel in build    */
+                                        /*     buffer (without plane offset)  */
+    int p_off;                          /* offset of plane of first pixel     */
+    int i;                              /* loop index over pixels             */
+
+    /* Check whether requested line falls in the logical view window. */
+    if (x < 0 || x >= SCROLL_X_DIM)
+        return -1;
+
+    /* Adjust y to the logical row value. */
+    x += show_x;
+
+    /* Get the image of the line. */
+    (*vert_line_fn) (x, show_y, buf);
+
+    /* Calculate starting address in build buffer. */
+    addr = img3 + (x >> 2) + show_y * SCROLL_X_WIDTH;
+
+    /* Calculate plane offset of first pixel. */
+    p_off = (3 - (x & 3));
+
+    /* Copy image data into appropriate planes in build buffer. */
+    for (i = 0; i < SCROLL_Y_DIM; i++) {
+        addr[p_off * SCROLL_SIZE + i * SCROLL_X_WIDTH] = buf[i];
+        }
     return 0;
 }
 
@@ -968,6 +1049,33 @@ static void copy_image(unsigned char* img, unsigned short scr_addr) {
         "
         : /* no outputs */
         : "S"(img), "D"(mem_image + scr_addr)
+        : "eax", "ecx", "memory"
+    );
+}
+
+/*
+ * copy_status_bar
+ *   DESCRIPTION: Copy one plane of status bar from the build buffer to the
+ *                video memory.
+ *   INPUTS: img -- a pointer to a single screen plane in the build buffer
+ *    
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: copies status bar from the build buffer to video memory
+ */
+static void copy_status_bar(unsigned char* img) {
+    /*
+     * memcpy is actually probably good enough here, and is usually
+     * implemented using ISA-specific features like those below,
+     * but the code here provides an example of x86 string moves
+     */
+    asm volatile ("                                             \n\
+        cld                                                     \n\
+        movl $1440,%%ecx                                        \n\
+        rep movsb    /* copy ECX bytes from M[ESI] to M[EDI] */ \n\
+        "
+        : /* no outputs */
+        : "S"(img), "D"(mem_image)
         : "eax", "ecx", "memory"
     );
 }
