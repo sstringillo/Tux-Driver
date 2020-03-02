@@ -38,9 +38,15 @@
 
 #include "text.h"
 
+#define TEXTCOLOR 0x01
+#define BUFFERLENGTH 320
+#define PADDING 40
+#define TEXTHEIGHT 16
+#define TEXTWIDTH 8
+
 /* 
  * text_helper
- *   DESCRIPTION: 
+ *   DESCRIPTION: helper that allows us display our statusmessage onto our status bar  
  *   INPUTS: statusbuf, our buffer which currently contains our background color
              statusmessage, string that contains our status string
  *   OUTPUTS: none
@@ -52,17 +58,20 @@ void text_helper(unsigned char* statusbuf, char* statusmessage){
     int i,j,k; //buffer loop values
     int curr,col,row,val,newloc,shftvalue; //buffer movement values
     for(i=0;i<len;i++){
-      for(j=0;j<16;j++){
-          for(k=0;k<8;k++){
-              curr = (int)statusmessage[i]; //gets char at location i
-              row = j+1;                    // starts us at row 1 since we need 1 px on top and bottom
-              col = (i*8+k+40);             // loops through each col of char
-              val = font_data[curr][j];     //gets val from  font_data for our correct char
-              shftvalue = val>>(8-k);       //puts bit we care about far right
-              shftvalue = shftvalue & 0x01; //AND with 01 to figure out value of last bit 
-              newloc = (row*320)+col;       //gets location of pixel to draw to
-              if(shftvalue==1){             //checks if value 1 which means we need to color it
-                  statusbuf[newloc]=0x01;
+      for(j=0;j<TEXTHEIGHT;j++){
+          for(k=0;k<TEXTWIDTH;k++){
+              //Gets character and intil looping points
+              curr = (int)statusmessage[i]; 
+              row = j+1;                    
+              col = (i*TEXTWIDTH+k+PADDING); 
+              //gets font data, shifts our value to right ands ANDs to get bit into comparison position             
+              val = font_data[curr][j];    
+              shftvalue = val>>(TEXTWIDTH-k);       
+              shftvalue = shftvalue & 0x01;
+              //gets location and does comparison 
+              newloc = (row*BUFFERLENGTH)+col;      
+              if(shftvalue==1){             
+                  statusbuf[newloc]=TEXTCOLOR;
               }
             }
       }  

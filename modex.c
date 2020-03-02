@@ -522,11 +522,19 @@ void show_screen() {
     OUTW(0x03D4, ((target_img & 0x00FF) << 8) | 0x0D);
 }
 
+#define BUFFERSIZE 5760
+#define MESSAGESIZE 40
+#define TICKS 32
+#define MINUTES 60
+#define BARCOLOR 0x03
+#define PLANESIZE 4
+#define BUFPLANE 1440 
+
 /*
  * status_bar_on_screen
  *   DESCRIPTION: Show the logical status bar window on the video display.
  *   INPUTS: level, value of the current level we are on
-             fruit, value of amount of fruits on current level
+             fruit, value of amount of fruits left on current level
              tick, amount of time in ticks that have passed in the current level
  *   OUTPUTS: none 
  *   RETURN VALUE: none
@@ -534,23 +542,22 @@ void show_screen() {
  *                 shifts the VGA display source to point to the new image 
  */
 void status_bar_on_screen(int level,int fruit, int tick){
-    unsigned char statusbuf[5760];    /* status buffer, size 5760 = 320 * 18 */
-    unsigned char statusadjustedbuf[5760];
-
-    char* statusmessage[40]={0}; //empty status text
+    unsigned char statusbuf[BUFFERSIZE];   
+    unsigned char statusadjustedbuf[BUFFERSIZE];
+    char statusmessage[MESSAGESIZE]={0};
 
     /* converts our ticks to minutes and seconds */
-    int seconds = tick/32;
-    int modsec = (tick/32)%60;
-    int mins = seconds/60;
+    int seconds = tick/TICKS;
+    int modsec = (tick/TICKS)%MINUTES;
+    int mins = seconds/MINUTES;
 
     //converts our status message into a string we can work with
-    sprintf(statusmessage,"Level %d     Fruit %d    %d:%.2d", level,fruit,mins,modsec);
+    sprintf(statusmessage,"Level %d     %d Fruit     %d:%.2d", level,fruit,mins,modsec);
 
     /* puts background color into buffer */
     int i;
-    for(i=0;i<5760;i++){
-        statusbuf[i]=0x03;
+    for(i=0;i<BUFFERSIZE;i++){
+        statusbuf[i]=BARCOLOR;
     }
     
     /* puts status message into status buffer */
@@ -558,16 +565,16 @@ void status_bar_on_screen(int level,int fruit, int tick){
 
     /* logical to build buffer conversion */
     int j;
-    for(i=0;i<4;i++){
-        for(j=0;j<1440;j++){
-            statusadjustedbuf[j+i*1440]=statusbuf[4*j+i];
+    for(i=0;i<PLANESIZE;i++){
+        for(j=0;j<BUFPLANE;j++){
+            statusadjustedbuf[j+i*BUFPLANE]=statusbuf[PLANESIZE*j+i];
         }
     }
 
     /* Draw to each plane in the video memory. */
     for (i = 0; i < 4; i++) {
         SET_WRITE_MASK(1 << (i + 8));
-        copy_status_bar(statusadjustedbuf+i*1440);
+        copy_status_bar(statusadjustedbuf+i*BUFPLANE);
     }
 
 }
@@ -655,6 +662,101 @@ void draw_full_block(int pos_x, int pos_y, unsigned char* blk) {
 }
 
 /*
+ * copy_full_block
+ *   DESCRIPTION: Copies a BLOCK_X_DIM x BLOCK_Y_DIM block at absolute
+ *                coordinates into our buffer blk. Mask any portion of the 
+ *                block not inside the logical view window. 
+ *   INPUTS:    (pos_x,pos_y) -- coordinates of upper left corner of block
+ *              blk -- buffer that we will put our block data into
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: stores a BLOCK_X_DIM x BLOCK_Y_DIM block into our buffer blk  
+ */
+ void copy_full_block(int pos_x, int pos_y, unsigned char* blk) {
+    int dx, dy;          /* loop indices for x and y traversal of block */
+    int x_left, x_right; /* clipping limits in horizontal dimension     */
+    int y_top, y_bottom; /* clipping limits in vertical dimension       */
+
+    /* If block is completely off-screen, we do nothing. */
+    if (pos_x + BLOCK_X_DIM <= show_x || pos_x >= show_x + SCROLL_X_DIM ||
+        pos_y + BLOCK_Y_DIM <= show_y || pos_y >= show_y + SCROLL_Y_DIM)
+        return;
+
+    /* Clip any pixels falling off the left side of screen. */
+    if ((x_left = show_x - pos_x) < 0)
+        x_left = 0;
+    /* Clip any pixels falling off the right side of screen. */
+    if ((x_right = show_x + SCROLL_X_DIM - pos_x) > BLOCK_X_DIM)
+        x_right = BLOCK_X_DIM;
+    /* Skip the first x_left pixels in both screen position and block data. */
+    pos_x += x_left;
+    blk += x_left;
+
+    /*
+     * Adjust x_right to hold the number of pixels to be drawn, and x_left
+     * to hold the amount to skip between rows in the block, which is the
+     * sum of the original left clip and (BLOCK_X_DIM - the original right
+     * clip).
+     */
+    x_right -= x_left;
+    x_left = BLOCK_X_DIM - x_right;
+
+    /* Clip any pixels falling off the top of the screen. */
+    if ((y_top = show_y - pos_y) < 0)
+        y_top = 0;
+    /* Clip any pixels falling off the bottom of the screen. */
+    if ((y_bottom = show_y + SCROLL_Y_DIM - pos_y) > BLOCK_Y_DIM)
+        y_bottom = BLOCK_Y_DIM;
+    /*
+     * Skip the first y_left pixel in screen position and the first
+     * y_left rows of pixels in the block data.
+     */
+    pos_y += y_top;
+    blk += y_top * BLOCK_X_DIM;
+    /* Adjust y_bottom to hold the number of pixel rows to be drawn. */
+    y_bottom -= y_top;
+
+    /* Copies the clipped image into our buffer. */
+    for (dy = 0; dy < y_bottom; dy++, pos_y++) {
+        for (dx = 0; dx < x_right; dx++, pos_x++, blk++)
+            *blk = *(img3 + (pos_x >> 2) + pos_y * SCROLL_X_WIDTH +
+            (3 - (pos_x & 3)) * SCROLL_SIZE);
+
+        pos_x -= x_right;
+        blk += x_left;
+    }
+}
+
+#define BLOCK_DIM 12
+#define MASK_VAL 0x01 
+
+/*
+ * masking_helper
+ *   DESCRIPTION: Takes in a buffer and replaces the pixel data of the background where 
+ *                our character covers and replaces them with character pixels
+ *   INPUTS: background -- buffer of background without our character
+ *           mask -- buffer to mask block data in current direction
+ *           player -- buffer to player block data in current direction
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: Replaces our background buffer with our character "on top" of the background
+ */
+void masking_helper(unsigned char* background,unsigned char* mask, unsigned char* player) {
+    int x,y;
+     for(x=0;x<BLOCK_DIM;x++){
+        for(y=0;y<BLOCK_DIM;y++){
+            //checks if the current pixel in mask is equal to MASK_VAL
+            //since MASK_VAL lets our know which pixels our character occupies
+            if(mask[y*BLOCK_DIM+x]==MASK_VAL){
+                //puts character pixels into our buffer that we will use to display
+                background[y*BLOCK_DIM+x]=player[y*BLOCK_DIM+x];
+            }
+        }
+    }
+}
+
+
+/*
  * The functions inside the preprocessor block below rely on functions
  * in maze.c to generate graphical images of the maze.  These functions
  * are neither available nor necessary for the text restoration program
@@ -677,7 +779,6 @@ void draw_full_block(int pos_x, int pos_y, unsigned char* blk) {
  *   SIDE EFFECTS: draws into the build buffer
  */
 int draw_vert_line(int x) {
-    /* to be written... */
     unsigned char buf[SCROLL_Y_DIM];    /* buffer for graphical image of line */
     unsigned char* addr;                /* address of first pixel in build    */
                                         /*     buffer (without plane offset)  */

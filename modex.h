@@ -52,7 +52,7 @@
 #define IMAGE_Y_DIM     200   /* pixels                                     */
 #define IMAGE_X_WIDTH   (IMAGE_X_DIM / 4)          /* addresses (bytes)     */
 #define SCROLL_X_DIM    IMAGE_X_DIM                /* full image width      */
-#define SCROLL_Y_DIM    IMAGE_Y_DIM                /* full image width      */
+#define SCROLL_Y_DIM    183                        /* image width minus status bar      */
 #define SCROLL_X_WIDTH  (IMAGE_X_DIM / 4)          /* addresses (bytes)     */
 
 /*
@@ -132,6 +132,17 @@ extern void status_bar_on_screen(int level, int fruit, int ticks);
  * is clipped (cut off and not drawn)
  */
 extern void draw_full_block(int pos_x, int pos_y, unsigned char* blk);
+
+/*
+ * copies a 12x12 block with upper left corner at logical position
+ * (pos_x,pos_y) into the given buffer; any part of the block outside 
+ * of the logical view window
+ * is clipped (cut off and not drawn)
+ */
+extern void copy_full_block(int pos_x, int pos_y, unsigned char* blk);
+
+/* draws our player block on top of our given background so we can display the correct block */
+extern void masking_helper(unsigned char* background,unsigned char* mask, unsigned char* player);
 
 /* draw a horizontal line at vertical pixel y within the logical view window */
 extern int draw_horiz_line(int y);

@@ -318,6 +318,8 @@ unsigned long data;
 static struct termios tio_orig;
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
+#define BLOCKSIZE 144
+
 /*
  * keyboard_thread
  *   DESCRIPTION: Thread that handles keyboard inputs
@@ -395,6 +397,9 @@ static void *rtc_thread(void *arg) {
     int open[NUM_DIRS];
     int need_redraw = 0;
     int goto_next_level = 0;
+    //our masking buffers, 1 for original and 1 for with the character
+    unsigned char ogbuffer[BLOCKSIZE];
+    unsigned char chbuffer[BLOCKSIZE];
 
     // Loop over levels until a level is lost or quit.
     for (level = 1; (level <= MAX_LEVEL) && (quit_flag == 0); level++) {
@@ -421,8 +426,14 @@ static void *rtc_thread(void *arg) {
         // Show maze around the player's original position
         (void)unveil_around_player(play_x, play_y);
 
-        draw_full_block(play_x, play_y, get_player_block(last_dir));
+        //saves orignal buffers, maps our character onto the background
+        //then we show to screen and then redraw old background
+        copy_full_block(play_x, play_y, ogbuffer);
+        copy_full_block(play_x, play_y, chbuffer);
+        masking_helper(chbuffer, get_player_mask(last_dir), get_player_block(last_dir));
+        draw_full_block(play_x, play_y, chbuffer);
         show_screen();
+        draw_full_block(play_x, play_y,ogbuffer);
 
         // get first Periodic Interrupt
         ret = read(fd, &data, sizeof(unsigned long));
@@ -453,10 +464,9 @@ static void *rtc_thread(void *arg) {
                 // Lock the mutex
                 pthread_mutex_lock(&mtx);
 
-                //get the values we want for our status bar
+                //get the values we want for our status bar and call it so
+                //we can display them
                 int fruit_val = return_nfruit();
-                int levels = level;
-                int tickval = total;
                 status_bar_on_screen(level,fruit_val,time);
 
                 // Check to see if a key has been pressed
@@ -530,12 +540,20 @@ static void *rtc_thread(void *arg) {
                             move_left(&play_x);  
                             break;
                     }
-                    draw_full_block(play_x, play_y, get_player_block(last_dir));    
+                    //same logic as above copy, mask then display
+                    //then since redraw will become 1 we show and
+                    //then draw original after
+                    copy_full_block(play_x, play_y, ogbuffer);
+                    copy_full_block(play_x, play_y, chbuffer);
+                    masking_helper(chbuffer,get_player_mask(last_dir),get_player_block(last_dir));
+                    draw_full_block(play_x, play_y, chbuffer);
                     need_redraw = 1;
                 }
             }
-            if (need_redraw)
-                show_screen();    
+            if (need_redraw){
+                show_screen();   
+                draw_full_block(play_x, play_y,ogbuffer);
+            }
             need_redraw = 0;
         }    
     }

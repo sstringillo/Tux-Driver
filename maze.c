@@ -728,7 +728,7 @@ int add_a_fruit() {
  *   INPUTS: none
  *   OUTPUTS: none
  *   RETURN VALUE: the number of fruits in the maze at the time 
-                   when it is called
+ *                 when it is called
  *   SIDE EFFECTS: none
  */
 int return_nfruit() {
