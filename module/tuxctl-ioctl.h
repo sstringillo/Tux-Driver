@@ -10,5 +10,9 @@
 #define TUX_LED_REQUEST _IO('E', 0x14)
 #define TUX_LED_ACK _IO('E', 0x15)
 
+int tux_init_helper(struct tty_struct* tty);
+
+int tux_set_leds(struct tty_struct* tty, unsigned long arg);
+
 #endif
 
