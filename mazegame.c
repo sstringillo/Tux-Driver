@@ -376,6 +376,41 @@ static void *keyboard_thread(void *arg) {
     return 0;
 }
 
+/*
+ * tux_thread
+ *   DESCRIPTION: Thread that handles tux inputs
+ *   INPUTS: none
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: none
+ */
+static void *tux_thread(unsigned long arg) {
+    char key;
+    int state = 0;
+    // Break only on win or quit input - '`'
+    unsigned dirpressed;
+    dirpressed = arg;
+    while (winner == 0) {           
+                pthread_mutex_lock(&mtx);
+                switch(arg) {
+                    case 0x0E:
+                        next_dir = DIR_UP;
+                        break;
+                    case 0x0B:
+                        next_dir = DIR_DOWN;
+                        break;
+                    case 0x07:
+                        next_dir = DIR_RIGHT;
+                        break;
+                    case 0x0D:
+                        next_dir = DIR_LEFT;
+                        break;
+                }
+                pthread_mutex_unlock(&mtx);
+        }
+    return 0;
+}
+
 /* some stats about how often we take longer than a single timer tick */
 static int goodcount = 0;
 static int badcount = 0;
@@ -385,7 +420,7 @@ static int total = 0;
  * rtc_thread
  *   DESCRIPTION: Thread that handles updating the screen
  *   INPUTS: none
- *   OUTPUTS: none
+ *   OUTPUTS: none`
  *   RETURN VALUE: none
  *   SIDE EFFECTS: none
  */

@@ -29,6 +29,11 @@
 #define debug(str, ...) \
 	printk(KERN_DEBUG "%s: " str, __FUNCTION__, ## __VA_ARGS__)
 
+
+unsigned long buttons;
+unsigned char globbuffer[6];
+int ack; //if 0 we can do stuff, if 1 we are "locked"
+static spinlock_t myspinlock;
 /************************ Protocol Implementation *************************/
 
 /* tuxctl_handle_packet()
@@ -39,11 +44,60 @@
 void tuxctl_handle_packet (struct tty_struct* tty, unsigned char* packet)
 {
     unsigned a, b, c;
-
+	//unsigned up,left,down,right,start,tux_a,tux_b,tux_c;
     a = packet[0]; /* Avoid printk() sign extending the 8-bit */
     b = packet[1]; /* values when printing them. */
     c = packet[2];
+	unsigned buttoncheck;
 	
+	switch (a){
+		case MTCP_ACK:
+			ack = 0;
+			break;
+		case MTCP_RESET:
+			tux_init_helper(tty);
+			tuxctl_ldisc_put(tty,globbuffer,6);
+			break;
+		case MTCP_BIOC_EVENT:
+				if(ack==1){
+					return -1;
+				}
+				unsigned long flags;
+				spin_lock_irqsave(&myspinlock,flags);
+				ack=1;
+				buttoncheck = b & 0x0F;
+				if(buttoncheck==0x0E){ //start
+					buttons = 0xFE;
+				}
+				if(buttoncheck==0x0D){ //a
+					buttons = 0xFD;
+				}
+				if(buttoncheck==0x0B){ //b
+					buttons = 0xFB;
+				}
+				if(buttoncheck==0x07){ //c
+					buttons = 0xF7;
+				}
+
+				buttoncheck = c & 0x0F;
+				if(buttoncheck==0x0E){ //up
+					buttons = 0xEF;
+				}
+				if(buttoncheck==0x0D){ //left
+					buttons = 0xBF;
+				}
+				if(buttoncheck==0x0B){ //down
+					buttons = 0xDF;
+				}
+				if(buttoncheck==0x07){ //right
+					buttons = 0x7F;
+				}
+				ack=0;
+				spin_unlock_irqrestore(&myspinlock, flags);
+				printk("buttons1 %x", buttons);
+				break; 
+
+	}
     printk("packet : %x %x %x\n", a, b, c); 
 }
 
@@ -68,11 +122,12 @@ tuxctl_ioctl (struct tty_struct* tty, struct file* file,
 	case TUX_INIT:
 		return tux_init_helper(tty);
 	case TUX_BUTTONS:
+		return tux_buttons_helper(tty, (unsigned long*)arg);
 	case TUX_SET_LED:
 		return tux_set_leds(tty,arg);	
-	case TUX_LED_ACK:
-	case TUX_LED_REQUEST:
-	case TUX_READ_LED:
+	case TUX_LED_ACK: //no
+	case TUX_LED_REQUEST: //nah
+	case TUX_READ_LED: //dont need to do
 	default:
 	    return -EINVAL;
     }
@@ -87,6 +142,12 @@ int tux_init_helper(struct tty_struct* tty){
 
 
 int tux_set_leds(struct tty_struct* tty, unsigned long arg){
+	if(ack==1){
+		return -1;
+	}
+	unsigned long flags;
+	spin_lock_irqsave(&myspinlock,flags);
+	ack=1;
 	unsigned char displayvals[18] = {0xE7,0x06,0xCB,0x8F,0x2E,0xAD,0xED,0x86,0xEF,0xAE,0xEE,0x6D,0xE1,0x4F,0xE9,0xE8,0x00,0x10};
 	unsigned char buf[6];
 	buf[0] = MTCP_LED_SET;
@@ -187,9 +248,38 @@ int tux_set_leds(struct tty_struct* tty, unsigned long arg){
 				check=0;
 				break; 
 		}
-
+			globbuffer[0]= MTCP_LED_SET;
+			globbuffer[1] = 0xFF;
+			globbuffer[2] = buf[2];
+			globbuffer[3] = buf[3];
+			globbuffer[4] = buf[4];
+			globbuffer[5] = buf[5];
+			
 	}
+	ack=0;
+	spin_unlock_irqrestore(&myspinlock, flags);
 	return tuxctl_ldisc_put(tty,buf,6);
+}
+
+int tux_buttons_helper(struct tty_struct* tty, unsigned long arg){
+	if((unsigned long*)arg==NULL){
+		return -EINVAL;
+	}
+	unsigned long flags;
+	spin_lock_irqsave(&myspinlock,flags);
+	//ack=1;
+	int copycheck;
+	copycheck = copy_to_user(arg,buttons,sizeof(buttons));
+	if(copycheck!=0){
+		return -EINVAL;
+	}
+
+	//ack=0;
+	spin_unlock_irqrestore(&myspinlock, flags);
+	return 0; 
+	
+	
+
 }
 
 
