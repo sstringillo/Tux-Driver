@@ -31,6 +31,14 @@ extern int tuxctl_ldisc_put(struct tty_struct*, char const*, int);
  */
 void tuxctl_handle_packet(struct tty_struct *tty, unsigned char *packet);
 
+/* sends initilizer signals to the tux device */
+int tux_init_helper(struct tty_struct* tty);
+
+/* sets values of tux LEDs based on given hex value */
+int tux_set_leds(struct tty_struct* tty, unsigned long arg);
+
+/* takes a 3 byte packed and returns which button, if any was pressed (active low) */
+int tux_buttons_helper(struct tty_struct* tty, int arg);
 
 /* ioctl for the line discipline that the students will implement.
  * Located in tuxctl.c

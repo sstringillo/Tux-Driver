@@ -527,6 +527,10 @@ void show_screen() {
 #define TICKS 32
 #define MINUTES 60
 #define BARCOLOR 0x03
+#define BARCOLOR2 0x04
+#define BARCOLOR3 0x05
+#define BARCOLOR4 0x06
+#define BARCOLOR5 0x07
 #define PLANESIZE 4
 #define BUFPLANE 1440 
 
@@ -557,7 +561,15 @@ void status_bar_on_screen(int level,int fruit, int tick){
     /* puts background color into buffer */
     int i;
     for(i=0;i<BUFFERSIZE;i++){
-        statusbuf[i]=BARCOLOR;
+        if(level==1){
+            statusbuf[i]=BARCOLOR;
+        }
+        if(level%2==0&&level!=0){
+            statusbuf[i]=BARCOLOR2;
+        }
+        else{
+            statusbuf[i]=BARCOLOR3;
+        }
     }
     
     /* puts status message into status buffer */
@@ -717,6 +729,77 @@ void draw_full_block(int pos_x, int pos_y, unsigned char* blk) {
     y_bottom -= y_top;
 
     /* Copies the clipped image into our buffer. */
+    for (dy = 0; dy < y_bottom; dy++, pos_y++) {
+        for (dx = 0; dx < x_right; dx++, pos_x++, blk++)
+            *blk = *(img3 + (pos_x >> 2) + pos_y * SCROLL_X_WIDTH +
+            (3 - (pos_x & 3)) * SCROLL_SIZE);
+
+        pos_x -= x_right;
+        blk += x_left;
+    }
+}
+
+#define MESS_X_DIM 60
+#define MESS_Y_DIM 20
+
+/*
+ * text_full_block
+ *   DESCRIPTION: Copies a MESS_X_DIM x MESS_Y_DIM block at offset
+ *                coordinates from our player.  Mask any portion of the 
+ *                block not inside the logical view window.
+ *   INPUTS: (pos_x,pos_y) -- coordinates of upper left corner of block
+ *           blk -- image data for blocks (one byte per pixel, as a C array
+ *                  of dimensions [MESS_Y_DIM][MESS_X_DIM])
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: stores a MESS_X_DIM x MESS_Y_DIM block into our buffer blk
+ */
+void text_full_block(int pos_x, int pos_y, unsigned char* blk) {
+    int dx, dy;          /* loop indices for x and y traversal of block */
+    int x_left, x_right; /* clipping limits in horizontal dimension     */
+    int y_top, y_bottom; /* clipping limits in vertical dimension       */
+    //blk contains text with blocks above players
+
+    /* If block is completely off-screen, we do nothing. */
+    if (pos_x + MESS_X_DIM <= show_x || pos_x >= show_x + SCROLL_X_DIM ||
+        pos_y + MESS_Y_DIM <= show_y || pos_y >= show_y + SCROLL_Y_DIM)
+        return;
+
+    /* Clip any pixels falling off the left side of screen. */
+    if ((x_left = show_x - pos_x) < 0)
+        x_left = 0;
+    /* Clip any pixels falling off the right side of screen. */
+    if ((x_right = show_x + SCROLL_X_DIM - pos_x) > MESS_X_DIM)
+        x_right = MESS_X_DIM;
+    /* Skip the first x_left pixels in both screen position and block data. */
+    pos_x += x_left;
+    blk += x_left;
+
+    /*
+     * Adjust x_right to hold the number of pixels to be drawn, and x_left
+     * to hold the amount to skip between rows in the block, which is the
+     * sum of the original left clip and (BLOCK_X_DIM - the original right
+     * clip).
+     */
+    x_right -= x_left;
+    x_left = MESS_X_DIM - x_right;
+
+    /* Clip any pixels falling off the top of the screen. */
+    if ((y_top = show_y - pos_y) < 0)
+        y_top = 0;
+    /* Clip any pixels falling off the bottom of the screen. */
+    if ((y_bottom = show_y + SCROLL_Y_DIM - pos_y) > MESS_Y_DIM)
+        y_bottom = MESS_Y_DIM;
+    /*
+     * Skip the first y_left pixel in screen position and the first
+     * y_left rows of pixels in the block data.
+     */
+    pos_y += y_top;
+    blk += y_top * MESS_X_DIM;
+    /* Adjust y_bottom to hold the number of pixel rows to be drawn. */
+    y_bottom -= y_top;
+
+    /* Draw the clipped image. */
     for (dy = 0; dy < y_bottom; dy++, pos_y++) {
         for (dx = 0; dx < x_right; dx++, pos_x++, blk++)
             *blk = *(img3 + (pos_x >> 2) + pos_y * SCROLL_X_WIDTH +
@@ -1058,6 +1141,91 @@ static void fill_palette() {
     /* Write all 64 colors from array. */
     REP_OUTSB(0x03C9, palette_RGB, 64 * 3);
 }
+
+#define COLORAMOUNT 8
+#define RGB 3
+#define TIMER 10
+#define PLAYERCOL 0x20
+#define BLOCKCOL 0x22
+#define idx0 0
+#define idx1 1
+#define idx2 2
+#define idx3 3
+#define idx4 4
+#define idx5 5
+#define idx6 6
+#define idx7 7
+#define idx8 8
+#define idx9 9
+#define idx10 10
+
+/*
+ * colo_pal_helper
+ *   DESCRIPTION: Makes our player blink on a set interval of ticks and
+ *                changes our block color based on level  
+ *   INPUTS: levels - level we are currently on
+ *           ticks - total time in ticks so far for our game
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: changes player center color and block color if correct timing
+ *                 is met 
+ */
+void col_pal_helper(int levels, int ticks){
+    static unsigned char mycolor[COLORAMOUNT][RGB]= {
+        {0xFF,0x80,0x00},{0x00,0x33,0x66},
+        {0x00,0x66,0x00},{0x00,0x66,0x00},
+        {0xFF,0xCC,0xCC},{0x66,0xFF,0x66},
+        {0xCC,0x99,0xFF},{0x4C,0x00,0x99}
+        }; 
+
+    if(ticks%TIMER==0){
+        OUTB(0x03C8,PLAYERCOL);
+        REP_OUTSB(0x03C9,mycolor[idx0],RGB);
+    }
+    else{
+        OUTB(0x03C8,PLAYERCOL);
+        REP_OUTSB(0x03C9,mycolor[idx1],RGB);  
+    }
+
+    if(levels==idx2){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx3],RGB);
+    }
+    if(levels==idx3){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx4],RGB);
+    }
+    if(levels==idx4){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx5],RGB);
+    }
+    if(levels==idx5){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx6],RGB);
+    }
+    if(levels==idx6){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx7],RGB);
+    }
+    if(levels==idx7){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx2],RGB);
+    }
+    if(levels==idx8){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx3],RGB);
+    }
+    if(levels==idx9){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx5],RGB);
+    }
+    if(levels==idx10){
+        OUTB(0x03C8,BLOCKCOL);
+        REP_OUTSB(0x03C9,mycolor[idx6],RGB);
+    }
+
+}
+
 
 /*
  * write_font_data

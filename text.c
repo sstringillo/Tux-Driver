@@ -79,6 +79,41 @@ void text_helper(unsigned char* statusbuf, char* statusmessage){
 }
 
 /* 
+ * text_helper_fruit
+ *   DESCRIPTION: helper that allows us display our fruit message onto the screen  
+ *   INPUTS: buf, our buffer which currently contains our background blocks
+             statusmessage, string that contains our status string
+             loc, location where we are going to write our message to
+ *   OUTPUTS: none
+ *   RETURN VALUE: none
+ *   SIDE EFFECTS: swaps background color with our status text color in correct spots
+ */
+void text_helper_fruit(unsigned char* buf, char* statusmessage, int x, int y){
+    int len = strlen(statusmessage);
+    int i,j,k; //buffer loop values
+    int curr,col,row,val,newloc,shftvalue; //buffer movement values
+    for(i=0;i<len;i++){
+      for(j=x;j<(x-TEXTHEIGHT);j++){
+          for(k=y;k<(y-TEXTWIDTH);k++){
+              //Gets character and intil looping points
+              curr = (int)statusmessage[i]; 
+              row = j+1;                    
+              col = (i*TEXTWIDTH+k); 
+              //gets font data, shifts our value to right ands ANDs to get bit into comparison position             
+              val = font_data[curr][j];    
+              shftvalue = val>>(TEXTWIDTH-k);       
+              shftvalue = shftvalue & 0x01;
+              //gets location and does comparison 
+              newloc = (row*BUFFERLENGTH)+col;      
+              if(shftvalue==1){             
+                  buf[newloc]=TEXTCOLOR;
+              }
+            }
+      }  
+    }
+}
+
+/* 
  * These font data were read out of video memory during text mode and
  * saved here.  They could be read in the same manner at the start of a
  * game, but keeping a copy allows us to run the game to fix text mode

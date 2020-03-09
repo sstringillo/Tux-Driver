@@ -141,8 +141,19 @@ extern void draw_full_block(int pos_x, int pos_y, unsigned char* blk);
  */
 extern void copy_full_block(int pos_x, int pos_y, unsigned char* blk);
 
+/*
+ * copies a 60x20 block with upper left corner at player offset from
+ * (pos_x,pos_y) into the given buffer; any part of the block outside 
+ * of the logical view window
+ * is clipped (cut off and not drawn)
+ */
+extern void text_full_block(int pos_x, int pos_y, unsigned char* blk);
+
 /* draws our player block on top of our given background so we can display the correct block */
 extern void masking_helper(unsigned char* background,unsigned char* mask, unsigned char* player);
+
+/* changes our player and block color based on timing/levels */
+extern void col_pal_helper(int levels, int ticks);
 
 /* draw a horizontal line at vertical pixel y within the logical view window */
 extern int draw_horiz_line(int y);

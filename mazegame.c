@@ -52,6 +52,7 @@
 #include <sys/io.h>
 #include <termios.h>
 #include <pthread.h>
+#include "module/tuxctl-ioctl.h"
 
 #define BACKQUOTE 96
 #define UP        65
@@ -313,10 +314,14 @@ int winner= 0;
 int next_dir = UP;
 int play_x, play_y, last_dir, dir;
 int move_cnt = 0;
-int fd;
+int fd,fdd;
 unsigned long data;
 static struct termios tio_orig;
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t tuxmtx = PTHREAD_MUTEX_INITIALIZER;
+unsigned long buttoncheck; //tux buttons pressed variable
+unsigned int buttonval;
+static pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
 
 #define BLOCKSIZE 144
 
@@ -376,37 +381,46 @@ static void *keyboard_thread(void *arg) {
     return 0;
 }
 
+#define DIRUP 0xEF
+#define DIRDOWN 0xDF
+#define DIRRIGHT 0x7F
+#define DIRLEFT 0xBF
+
+
 /*
  * tux_thread
  *   DESCRIPTION: Thread that handles tux inputs
  *   INPUTS: none
  *   OUTPUTS: none
  *   RETURN VALUE: none
- *   SIDE EFFECTS: none
+ *   SIDE EFFECTS: turns our player the direction pressed on tux in our mazegame
  */
-static void *tux_thread(unsigned long arg) {
-    char key;
-    int state = 0;
+static void *tux_thread(void* arg) {
     // Break only on win or quit input - '`'
-    unsigned dirpressed;
-    dirpressed = arg;
-    while (winner == 0) {           
-                pthread_mutex_lock(&mtx);
-                switch(arg) {
-                    case 0x0E:
+    while(1){           
+        pthread_mutex_lock(&tuxmtx);
+        while(buttoncheck==0){
+            pthread_cond_wait(&cv,&tuxmtx);
+        }
+               if(buttoncheck==1){
+                switch(buttonval) {
+                    case DIRUP:
                         next_dir = DIR_UP;
                         break;
-                    case 0x0B:
+                    case DIRDOWN:
                         next_dir = DIR_DOWN;
                         break;
-                    case 0x07:
+                    case DIRRIGHT:
                         next_dir = DIR_RIGHT;
                         break;
-                    case 0x0D:
+                    case DIRLEFT:
                         next_dir = DIR_LEFT;
                         break;
+                
                 }
-                pthread_mutex_unlock(&mtx);
+                // buttoncheck=0;
+               }
+            pthread_mutex_unlock(&tuxmtx);
         }
     return 0;
 }
@@ -416,13 +430,23 @@ static int goodcount = 0;
 static int badcount = 0;
 static int total = 0;
 
+#define TICKS 32
+#define MIN 60
+#define DIVISOR 10
+#define SSHIFT 4
+#define MSHIFT 8
+#define LSHIFT 12
+#define TENMINTIMER 19200
+#define LED3ON 0x04070000
+#define LED4ON 0x040F0000
+
 /*
  * rtc_thread
  *   DESCRIPTION: Thread that handles updating the screen
  *   INPUTS: none
- *   OUTPUTS: none`
+ *   OUTPUTS: none
  *   RETURN VALUE: none
- *   SIDE EFFECTS: none
+ *   SIDE EFFECTS: displays level timer on the tux
  */
 static void *rtc_thread(void *arg) {
     int time = 0;
@@ -435,6 +459,8 @@ static void *rtc_thread(void *arg) {
     //our masking buffers, 1 for original and 1 for with the character
     unsigned char ogbuffer[BLOCKSIZE];
     unsigned char chbuffer[BLOCKSIZE];
+    unsigned char ogmessagebuffer[720];
+    unsigned char chmessagebuffer[720];
 
     // Loop over levels until a level is lost or quit.
     for (level = 1; (level <= MAX_LEVEL) && (quit_flag == 0); level++) {
@@ -465,9 +491,14 @@ static void *rtc_thread(void *arg) {
         //then we show to screen and then redraw old background
         copy_full_block(play_x, play_y, ogbuffer);
         copy_full_block(play_x, play_y, chbuffer);
+        text_full_block((play_x-80),(play_y-320),ogmessagebuffer);
+        text_full_block((play_x-80),(play_y-320),chmessagebuffer);
+        text_helper_fruit(chmessagebuffer,"FRUIT",(play_x-80),(play_y-320));
+        col_pal_helper(level,time);
         masking_helper(chbuffer, get_player_mask(last_dir), get_player_block(last_dir));
         draw_full_block(play_x, play_y, chbuffer);
         show_screen();
+        //text_helper_fruit(ogmessagebuffer,"",(play_x-80),(play_y-320));
         draw_full_block(play_x, play_y,ogbuffer);
 
         // get first Periodic Interrupt
@@ -484,6 +515,30 @@ static void *rtc_thread(void *arg) {
 
             total += ticks;
             time += ticks; //set time to ticks to use as our status clock
+            unsigned long timer;
+            timer = (unsigned long) time;
+            unsigned long ledtimer;
+            //checks if we are in form 00:00 or 0:00
+            if(timer<TENMINTIMER){
+                ledtimer = LED3ON;
+            }
+            else{
+                ledtimer = LED4ON;
+            }
+
+            //formatting time for LEDS
+            unsigned long seconds = (timer/TICKS)%MIN;
+            unsigned long sec1 = seconds % DIVISOR;
+            unsigned long sec2 = seconds/DIVISOR;
+            sec2 = sec2 << SSHIFT;
+            unsigned long modsec = (timer/TICKS)/MIN;
+            unsigned long min1=modsec%DIVISOR;
+            min1 = min1 << MSHIFT;
+            unsigned long min2=modsec/DIVISOR;
+            min2 = min2 << LSHIFT;
+            ledtimer = ledtimer+min2+min1+sec2+sec1;
+            ioctl(fdd, TUX_SET_LED, ledtimer);
+
             // If the system is completely overwhelmed we better slow down:
             if (ticks > 8) ticks = 8;
 
@@ -496,14 +551,27 @@ static void *rtc_thread(void *arg) {
             
             while (ticks--) {
 
-                // Lock the mutex
+                //get val of button pressed and make sure its a valid response
+                ioctl(fdd, TUX_BUTTONS, &buttonval);
+                // buttonval = 0xDF;
+                // if(buttonval==0xEF||buttonval==0xDF||buttonval==0x7F||buttonval==0xBF){
+                if(buttonval==DIRUP||buttonval==DIRDOWN||buttonval==DIRRIGHT||buttonval==DIRLEFT){
+                    buttoncheck=1;
+                }
+                else{
+                    buttoncheck=0;
+                }
+                pthread_mutex_lock(&tuxmtx);
+                if(buttoncheck==1){
+                    pthread_cond_signal(&cv);
+                }
+                pthread_mutex_unlock(&tuxmtx);
                 pthread_mutex_lock(&mtx);
 
                 //get the values we want for our status bar and call it so
                 //we can display them
                 int fruit_val = return_nfruit();
                 status_bar_on_screen(level,fruit_val,time);
-
                 // Check to see if a key has been pressed
                 if (next_dir != dir) {
                     // Check if new direction is backwards...if so, do immediately
@@ -575,17 +643,18 @@ static void *rtc_thread(void *arg) {
                             move_left(&play_x);  
                             break;
                     }
-                    //same logic as above copy, mask then display
-                    //then since redraw will become 1 we show and
-                    //then draw original after
-                    copy_full_block(play_x, play_y, ogbuffer);
-                    copy_full_block(play_x, play_y, chbuffer);
-                    masking_helper(chbuffer,get_player_mask(last_dir),get_player_block(last_dir));
-                    draw_full_block(play_x, play_y, chbuffer);
                     need_redraw = 1;
                 }
             }
             if (need_redraw){
+                //same logic as above copy, mask then display
+                //then since redraw will become 1 we show and
+                //then draw original after
+                copy_full_block(play_x, play_y, ogbuffer);
+                copy_full_block(play_x, play_y, chbuffer);
+                masking_helper(chbuffer,get_player_mask(last_dir),get_player_block(last_dir));
+                col_pal_helper(level,time);
+                draw_full_block(play_x, play_y, chbuffer);
                 show_screen();   
                 draw_full_block(play_x, play_y,ogbuffer);
             }
@@ -613,6 +682,12 @@ int main() {
 
     pthread_t tid1;
     pthread_t tid2;
+    pthread_t tid3;
+    //open up tux 
+    fdd = open("/dev/ttyS0", O_RDWR | O_NOCTTY);
+    int ldisc_num = N_MOUSE;
+    ioctl(fdd, TIOCSETD, &ldisc_num);
+    ioctl(fdd, TUX_INIT, 0);
 
     // Initialize RTC
     fd = open("/dev/rtc", O_RDONLY, 0);
@@ -654,6 +729,7 @@ int main() {
     // Create the threads
     pthread_create(&tid1, NULL, rtc_thread, NULL);
     pthread_create(&tid2, NULL, keyboard_thread, NULL);
+    pthread_create(&tid3, NULL, tux_thread, NULL);
     
     // Wait for all the threads to end
     pthread_join(tid1, NULL);
@@ -664,6 +740,7 @@ int main() {
     
     // Close Keyboard
     (void)tcsetattr(fileno(stdin), TCSANOW, &tio_orig);
+
         
     // Close RTC
     close(fd);

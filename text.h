@@ -44,6 +44,9 @@
 /* Helper to put our status message into our status buffer */
 extern void text_helper(unsigned char* statusbuf, char* statusmessage);
 
+/* Helper to put our fruit message onto the screen when we collect a fruit */
+extern void text_helper_fruit(unsigned char* buf, char* statusmessage, int x, int y);
+
 /* Standard VGA text font. */
 extern unsigned char font_data[256][16];
 
