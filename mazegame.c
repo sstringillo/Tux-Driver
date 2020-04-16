@@ -643,6 +643,7 @@ static void *rtc_thread(void *arg) {
                             move_left(&play_x);  
                             break;
                     }
+                    col_pal_helper(level, time);
                     need_redraw = 1;
                 }
             }
@@ -653,7 +654,7 @@ static void *rtc_thread(void *arg) {
                 copy_full_block(play_x, play_y, ogbuffer);
                 copy_full_block(play_x, play_y, chbuffer);
                 masking_helper(chbuffer,get_player_mask(last_dir),get_player_block(last_dir));
-                col_pal_helper(level,time);
+                //col_pal_helper(level,time);
                 draw_full_block(play_x, play_y, chbuffer);
                 show_screen();   
                 draw_full_block(play_x, play_y,ogbuffer);

@@ -88,6 +88,7 @@ void tuxctl_handle_packet (struct tty_struct* tty, unsigned char* packet)
 			ack = 1;
 			break;
 		case MTCP_BIOC_EVENT:
+				buttons = 0x00;
 				//if(ack==1){
 				//	return -1;
 				//}
